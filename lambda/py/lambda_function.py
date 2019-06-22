@@ -33,10 +33,9 @@ class LaunchRequestHandler(AbstractRequestHandler):
     def handle(self, handler_input):
         # type: (HandlerInput) -> Response
         logger.info("In LaunchRequestHandler")
-        speech = ('Welcome to pet match. I can help you find the best dog '
-                  'for you. What are two things you are looking for in a '
-                  'dog?')
-        reprompt = "What size and temperament are you looking for in a dog?"
+        speech = ('Welcome to pet match and library pickers. I can help you find the best dog and library pickers'
+                  'for you')
+        reprompt = "What size and temperament are you looking for in a dog? or Book details"
         handler_input.response_builder.speak(speech).ask(reprompt)
         return handler_input.response_builder.response
 
@@ -51,10 +50,36 @@ class MythicalCreaturesHandler(AbstractRequestHandler):
         is_mythical_creature = False
         resolved_value = get_resolved_value(
             handler_input.request_envelope.request, "pet")
+        logger.info("resolved_value :" + str(resolved_value))
         if (resolved_value is not None and
                 resolved_value == "mythical_creatures"):
             is_mythical_creature = True
             handler_input.attributes_manager.session_attributes["mythical_creature"] = handler_input.request_envelope.request.intent.slots["pet"].value
+        return is_mythical_creature
+
+    def handle(self, handler_input):
+        # type: (HandlerInput) -> Response
+        logger.info("In MythicalCreaturesHandler")
+        session_attr = handler_input.attributes_manager.session_attributes
+        speech = random_phrase(slots_meta["pet"]["invalid_responses"]).format(
+            session_attr["mythical_creature"])
+
+        return handler_input.response_builder.speak(speech).response
+        
+class LibraryPickerHandler(AbstractRequestHandler):
+    """Handler for MythicalCreatures."""
+    def can_handle(self, handler_input):
+        # type: (HandlerInput) -> bool
+        if not is_intent_name("LibraryPicker")(handler_input):
+            return False
+
+        is_library_picker = False
+        resolved_value = get_resolved_value(
+            handler_input.request_envelope.request, "pet")
+        logger.info("resolved_value :" + str(resolved_value))
+        if (resolved_value is not None):
+            is_mythical_creature = True
+            handler_input.attributes_manager.session_attributes["mythical_creature"] = 'books'
         return is_mythical_creature
 
     def handle(self, handler_input):
@@ -111,6 +136,51 @@ class InProgressPetMatchIntent(AbstractRequestHandler):
             )).response
 
 
+class InProgressLibraryPicker(AbstractRequestHandler):
+    def can_handle(self, handler_input):
+        # type: (HandlerInput) -> bool
+        return (is_intent_name("LibraryPicker")(handler_input)
+                and handler_input.request_envelope.request.dialog_state != DialogState.COMPLETED)
+
+    def handle(self, handler_input):
+        # type: (HandlerInput) -> Response
+        logger.info("In InProgressLibraryPicker")
+        current_intent = handler_input.request_envelope.request.intent
+        prompt = ""
+
+        for slot_name, current_slot in six.iteritems(
+                current_intent.slots):
+            logger.info("LibraryPicker slots: " + str(slot_name))
+            if slot_name not in ["article", "at_the", "I_Want"]:
+                if (current_slot.confirmation_status != SlotConfirmationStatus.CONFIRMED
+                        and current_slot.resolutions
+                        and current_slot.resolutions.resolutions_per_authority[0]):
+                    logger.info("LibraryPicker confirmation_status: " + str(slot_name))
+                    if current_slot.resolutions.resolutions_per_authority[0].status.code == StatusCode.ER_SUCCESS_MATCH:
+                        if len(current_slot.resolutions.resolutions_per_authority[0].values) > 1:
+                            prompt = "Which would you like "
+
+                            values = " or ".join([e.value.name for e in current_slot.resolutions.resolutions_per_authority[0].values])
+                            prompt += values + " ?"
+                            return handler_input.response_builder.speak(
+                                prompt).ask(prompt).add_directive(
+                                ElicitSlotDirective(slot_to_elicit=current_slot.name)
+                            ).response
+                    elif current_slot.resolutions.resolutions_per_authority[0].status.code == StatusCode.ER_SUCCESS_NO_MATCH:
+                        if current_slot.name in required_slots:
+                            prompt = "What {} are you looking for?".format(current_slot.name)
+
+                            return handler_input.response_builder.speak(
+                                prompt).ask(prompt).add_directive(
+                                    ElicitSlotDirective(
+                                        slot_to_elicit=current_slot.name
+                                    )).response
+
+        return handler_input.response_builder.add_directive(
+            DelegateDirective(
+                updated_intent=current_intent
+            )).response
+
 class CompletedPetMatchIntent(AbstractRequestHandler):
     def can_handle(self, handler_input):
         # type: (HandlerInput) -> bool
@@ -157,6 +227,54 @@ class CompletedPetMatchIntent(AbstractRequestHandler):
 
         return handler_input.response_builder.speak(speech).response
 
+
+class CompletedLibraryPicker(AbstractRequestHandler):
+    def can_handle(self, handler_input):
+        # type: (HandlerInput) -> bool
+        return (is_intent_name("LibraryPicker")(handler_input)
+            and handler_input.request_envelope.request.dialog_state == DialogState.COMPLETED)
+
+    def handle(self, handler_input):
+        # type: (HandlerInput) -> Response
+        logger.info("In CompletedLibraryPicker")
+        filled_slots = handler_input.request_envelope.request.intent.slots
+        slot_values = get_slot_values(filled_slots)
+        speech = ("LibraryPicker end: the action will be invoked ")
+        #              "memory. Please try again later")
+        #pet_match_options = build_pet_match_options(
+        #    host_name=pet_match_api["host_name"], path=pet_match_api["pets"],
+        #    port=pet_match_api["port"], slot_values=slot_values)
+
+        #try:
+            #response = http_get(pet_match_options)
+
+        #    if response["result"]:
+        #        speech = ("So a {} "
+        #                  "{} "
+        #                  "{} "
+        #                  "energy dog sounds good for you. Consider a "
+        #                  "{}".format(
+        #            slot_values["size"]["resolved"],
+        #            slot_values["temperament"]["resolved"],
+        #            slot_values["energy"]["resolved"],
+        #            response["result"][0]["breed"])
+        #        )
+        #    else:
+        #        speech = ("I am sorry I could not find a match for a "
+        #                  "{} "
+        #                  "{} "
+        #                  "{} energy dog".format(
+        #            slot_values["size"]["resolved"],
+        #            slot_values["temperament"]["resolved"],
+        #            slot_values["energy"]["resolved"])
+        #        )
+        #except Exception as e:
+        #    speech = ("I am really sorry. I am unable to access part of my "
+        #              "memory. Please try again later")
+        #    logger.info("Intent: {}: message: {}".format(
+        #        handler_input.request_envelope.request.intent.name, str(e)))
+
+        return handler_input.response_builder.speak(speech).response
 
 class FallbackIntentHandler(AbstractRequestHandler):
     """Handler for handling fallback intent.
@@ -366,8 +484,11 @@ sb = SkillBuilder()
 # Add all request handlers to the skill.
 sb.add_request_handler(LaunchRequestHandler())
 sb.add_request_handler(MythicalCreaturesHandler())
+#sb.add_request_handler(LibraryPickerHandler())
 sb.add_request_handler(InProgressPetMatchIntent())
+sb.add_request_handler(InProgressLibraryPicker())
 sb.add_request_handler(CompletedPetMatchIntent())
+sb.add_request_handler(CompletedLibraryPicker())
 sb.add_request_handler(HelpIntentHandler())
 sb.add_request_handler(FallbackIntentHandler())
 sb.add_request_handler(ExitIntentHandler())
